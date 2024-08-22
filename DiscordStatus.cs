@@ -29,7 +29,7 @@ using Random = Oxide.Core.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Discord Status", "Gonzi", "4.0.1")]
+    [Info("Discord Status", "Gonzi", "4.0.2")]
     [Description("Shows server information as a discord bot status")]
 
     public class DiscordStatus : CovalencePlugin
@@ -46,9 +46,9 @@ namespace Oxide.Plugins
         {
             Intents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.GuildMembers
         };
-        
+
         private DiscordGuild _guild;
-        
+
         private readonly DiscordLink _link = GetLibrary<DiscordLink>();
 
         Configuration config;
@@ -68,7 +68,7 @@ namespace Oxide.Plugins
         {
             [JsonProperty(PropertyName = "Discord Bot Token")]
             public string BotToken = string.Empty;
-            
+
             [JsonProperty(PropertyName = "Discord Server ID (Optional if bot only in 1 guild)")]
             public Snowflake GuildId { get; set; }
 
@@ -95,7 +95,7 @@ namespace Oxide.Plugins
                 "{players.sleepers} Sleepers!",
                 "{players.authenticated} Linked Account(s)"
             };
-            
+
             [JsonConverter(typeof(StringEnumConverter))]
             [DefaultValue(DiscordLogLevel.Info)]
             [JsonProperty(PropertyName = "Discord Extension Log Level (Verbose, Debug, Info, Warning, Error, Exception, Off)")]
@@ -114,7 +114,7 @@ namespace Oxide.Plugins
             {
                 Config.WriteObject(config, false, $"{Interface.Oxide.ConfigDirectory}/{Name}.jsonError");
                 PrintError("The configuration file contains an error and has been replaced with a default config.\n" +
-                           "The error configuration file was saved in the .jsonError extension");
+                           "The error configuration file was saved with the .jsonError extension");
                 LoadDefaultConfig();
             }
 
@@ -174,16 +174,14 @@ namespace Oxide.Plugins
             };
             return embed;
         }
-        
+
         [HookMethod(DiscordHooks.OnDiscordGuildMessageCreated)]
         void OnDiscordGuildMessageCreated(DiscordMessage message)
         {
-            if (message.Author.Bot == true) return;
+            if (message.Author.Bot) return;
 
-
-            if (message.Content[0] == config.Prefix[0])
+            if (!string.IsNullOrEmpty(message.Content) && message.Content[0] == config.Prefix[0])
             {
-
                 string cmd;
                 try
                 {
@@ -197,9 +195,7 @@ namespace Oxide.Plugins
                 }
 
                 cmd = cmd.Remove(0, 1);
-
-                cmd = cmd.Trim();
-                cmd = cmd.ToLower();
+                cmd = cmd.Trim().ToLower();
 
                 DiscordCMD(cmd, message);
             }
@@ -238,8 +234,8 @@ namespace Oxide.Plugins
                                 channel.CreateMessage(Client, Lang("IPAddress", ip, ConVar.Server.port));
                             }, this);
                         });
+                        break;
                     }
-                    break;
             }
         }
 
@@ -250,7 +246,7 @@ namespace Oxide.Plugins
         {
             lang.SetServerLanguage("en");
 
-            if (config.BotToken == string.Empty)
+            if (string.IsNullOrEmpty(config.BotToken))
                 return;
 
             _settings.ApiToken = config.BotToken;
@@ -259,7 +255,7 @@ namespace Oxide.Plugins
 
             timer.Every(config.UpdateInterval, () => UpdateStatus());
         }
-        
+
         [HookMethod(DiscordHooks.OnDiscordGatewayReady)]
         private void OnDiscordGatewayReady(GatewayReadyEvent ready)
         {
@@ -286,20 +282,16 @@ namespace Oxide.Plugins
                            "Please make sure your guild Id is correct and the bot is in the discord server.");
                 return;
             }
-                
+
             if (Client.Bot.Application.Flags.HasValue && !Client.Bot.Application.Flags.Value.HasFlag(ApplicationFlags.GatewayGuildMembersLimited))
             {
                 PrintError($"You need to enable \"Server Members Intent\" for {Client.Bot.BotUser.Username} @ https://discord.com/developers/applications\n" +
                            $"{Name} will not function correctly until that is fixed. Once updated please reload {Name}.");
                 return;
             }
-            
+
             _guild = guild;
         }
-        #endregion
-
-        #region Discord Hooks
-
         #endregion
 
         #region Status Update
@@ -319,7 +311,7 @@ namespace Oxide.Plugins
                         new DiscordActivity
                         {
                             Name = Format(config.Status[index]),
-                            Type = ActivityType.Game
+                            Type = GetStatusType()
                         }
                     }
                 });
@@ -340,7 +332,7 @@ namespace Oxide.Plugins
                 return (statusIndex + 1) % config.Status.Count;
 
             var index = 0;
-            do index = Random.Range(0, config.Status.Count - 1);
+            do index = Random.Range(0, config.Status.Count);
             while (index == statusIndex);
 
             return index;
@@ -351,19 +343,14 @@ namespace Oxide.Plugins
             if (!StatusTypes.Contains(config.StatusType))
                 PrintError($"Unknown Status Type '{config.StatusType}'");
 
-            switch (config.StatusType)
+            return config.StatusType switch
             {
-                case "Game":
-                    return ActivityType.Game;
-                case "Stream":
-                    return ActivityType.Streaming;
-                case "Listen":
-                    return ActivityType.Listening;
-                case "Watch":
-                    return ActivityType.Watching;
-                default:
-                    return default(ActivityType);
-            }
+                "Game" => ActivityType.Game,
+                "Stream" => ActivityType.Streaming,
+                "Listen" => ActivityType.Listening,
+                "Watch" => ActivityType.Watching,
+                _ => ActivityType.Game,
+            };
         }
 
         private string Format(string message)
@@ -378,18 +365,18 @@ namespace Oxide.Plugins
                 .Replace("{players.authenticated}", GetAuthCount().ToString());
 
 #if RUST
-        message = message
-            .Replace("{server.ip}", ConVar.Server.ip)
-            .Replace("{server.port}", ConVar.Server.port.ToString())
-            .Replace("{server.entities}", BaseNetworkable.serverEntities.Count.ToString())
-            .Replace("{server.worldsize}", ConVar.Server.worldsize.ToString())
-            .Replace("{server.seed}", ConVar.Server.seed.ToString())
-            .Replace("{server.fps}", Performance.current.frameRate.ToString())
-            .Replace("{server.avgfps}", Convert.ToInt32(Performance.current.frameRateAverage).ToString())
-            .Replace("{players.queued}", ConVar.Admin.ServerInfo().Queued.ToString())
-            .Replace("{players.joining}", ConVar.Admin.ServerInfo().Joining.ToString())
-            .Replace("{players.sleepers}", BasePlayer.sleepingPlayerList.Count.ToString())
-            .Replace("{players.total}", (players.Connected.Count() + BasePlayer.sleepingPlayerList.Count).ToString());
+            message = message
+                .Replace("{server.ip}", ConVar.Server.ip)
+                .Replace("{server.port}", ConVar.Server.port.ToString())
+                .Replace("{server.entities}", BaseNetworkable.serverEntities.Count.ToString())
+                .Replace("{server.worldsize}", ConVar.Server.worldsize.ToString())
+                .Replace("{server.seed}", ConVar.Server.seed.ToString())
+                .Replace("{server.fps}", Performance.current.frameRate.ToString())
+                .Replace("{server.avgfps}", Convert.ToInt32(Performance.current.frameRateAverage).ToString())
+                .Replace("{players.queued}", ConVar.Admin.ServerInfo().Queued.ToString())
+                .Replace("{players.joining}", ConVar.Admin.ServerInfo().Joining.ToString())
+                .Replace("{players.sleepers}", BasePlayer.sleepingPlayerList.Count.ToString())
+                .Replace("{players.total}", (players.Connected.Count() + BasePlayer.sleepingPlayerList.Count).ToString());
 #endif
 
             return message;

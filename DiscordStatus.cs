@@ -283,12 +283,13 @@ namespace Oxide.Plugins
                 return;
             }
 
-            if (Client.Bot.Application.Flags.HasValue && !Client.Bot.Application.Flags.Value.HasFlag(ApplicationFlags.GatewayGuildMembersLimited))
+            if (Client.Bot.Application.Flags.HasValue && Client.Bot.Application.Flags.Value.HasFlag(ApplicationFlags.GatewayGuildMembersLimited) == false)
             {
                 PrintError($"You need to enable \"Server Members Intent\" for {Client.Bot.BotUser.Username} @ https://discord.com/developers/applications\n" +
-                           $"{Name} will not function correctly until that is fixed. Once updated please reload {Name}.");
+                        $"{Name} will not function correctly until that is fixed. Once updated please reload {Name}.");
                 return;
             }
+
 
             _guild = guild;
         }

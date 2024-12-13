@@ -166,7 +166,7 @@ namespace Oxide.Plugins
                 Footer = new EmbedFooter
                 {
                     Text = $"Gonzi V{Version}",
-                    IconUrl = "https://cdn.discordapp.com/avatars/321373026488811520/08f996472c573473e7e30574e0e28da0.png"
+                    IconUrl = "https://cdn.discordapp.com/avatars/220351951907323905/3690bff9e5fb55990d2d816fa7c17a10.webp?size=32"
                 },
 
                 Color = new DiscordColor(15158332)

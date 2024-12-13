@@ -133,7 +133,7 @@ namespace Oxide.Plugins
                 ["Title"] = "Players List",
                 ["Players"] = "Online Players [{0}/{1}] 🎆\n {2}",
                 ["IPAddress"] = "steam://connect/{0}:{1}",
-				["NEXTWipe"] = "**Current Wipe:** {2}\n**Next Wipe:** {0} \n**Days Until Wipe:** {1}"
+				["NEXTWipe"] = "**Next Wipe:** {0} \n**Days Until Wipe:** {1}"
             }, this, "en");
 
             lang.RegisterMessages(new Dictionary<string, string>
@@ -141,7 +141,7 @@ namespace Oxide.Plugins
                 ["Title"] = "플레이어 목록",
                 ["Players"] = "접속중인 플레이어 [{0}/{1}] 🎆\n {2}",
                 ["IPAddress"] = "steam://connect/{0}:{1}",
-                ["NEXTWipe"] = "**현재 와이프:** {2}\n**다음 와이프:** {0} \n**와이프까지 남은 일수:** {1}"
+                ["NEXTWipe"] = "**다음 와이프:** {0} \n**와이프까지 남은 일수:** {1}"
             }, this, "kr");
         }
 
@@ -232,20 +232,20 @@ namespace Oxide.Plugins
                         });
                         break;
                     }
-                    case "wipe":
+                case "wipe":
 					{
-			            if (WipeInfoApi==null)
+						if (WipeInfoApi==null)
 						{
 							DiscordChannel.Get(Client, message.ChannelId).Then(channel =>
 										{
-                                channel.CreateMessage(Client, "Not Loaded");
-										});
+                                            channel.CreateMessage(Client, "Not Loaded");
+                                        });
                         }
 						else
 						{
 							DiscordChannel.Get(Client, message.ChannelId).Then(channel =>
 										{
-											channel.CreateMessage(Client, ServerStats(Lang("NEXTWipe",GetNextWipe().ToString("dddd, dd MMMM yyyy"),GetDaysTillWipe().ToString(),GetCurrentWipe().ToString("dddd, dd MMMM yyyy"))));
+											channel.CreateMessage(Client, ServerStats(Lang("NEXTWipe",GetNextWipe().ToString("dddd, dd MMMM yyyy"),GetDaysTillWipe().ToString())));
 										});
 						}
                         break;
@@ -304,7 +304,7 @@ namespace Oxide.Plugins
             if (Client.Bot.Application.Flags.HasValue && Client.Bot.Application.Flags.Value.HasFlag(ApplicationFlags.GatewayGuildMembersLimited) == false)
             {
                 PrintError($"You need to enable \"Server Members Intent\" for {Client.Bot.BotUser.Username} @ https://discord.com/developers/applications\n" +
-                        $"{Name} will not function correctly until that is fixed. Once updated please reload {Name}.");
+                           $"{Name} will not function correctly until that is fixed. Once updated please reload {Name}.");
                 return;
             }
             
@@ -404,7 +404,6 @@ namespace Oxide.Plugins
         private int GetAuthCount() => _link.LinkedCount;
 		private DateTime GetNextWipe() => (DateTime)WipeInfoApi.Call("GetNextWipe");
 		private int GetDaysTillWipe() => (int)WipeInfoApi.Call("GetDaysTillWipe");
-		private DateTime GetCurrentWipe() => (DateTime)WipeInfoApi.Call("GetCurrentWipe");
         #endregion
     }
 }

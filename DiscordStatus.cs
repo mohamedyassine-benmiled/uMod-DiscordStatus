@@ -1,54 +1,46 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
 using System.Linq;
-using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Oxide.Core;
-using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
-using Oxide.Ext.Discord;
-using Oxide.Ext.Discord.Attributes;
 using Oxide.Ext.Discord.Constants;
 using Oxide.Ext.Discord.Entities;
-using Oxide.Ext.Discord.Entities.Activities;
-using Oxide.Ext.Discord.Entities.Applications;
-using Oxide.Ext.Discord.Entities.Channels;
-using Oxide.Ext.Discord.Entities.Gatway;
-using Oxide.Ext.Discord.Entities.Gatway.Commands;
-using Oxide.Ext.Discord.Entities.Gatway.Events;
-using Oxide.Ext.Discord.Entities.Guilds;
-using Oxide.Ext.Discord.Entities.Messages;
-using Oxide.Ext.Discord.Entities.Messages.Embeds;
-using Oxide.Ext.Discord.Entities.Permissions;
-using Oxide.Ext.Discord.Libraries.Linking;
 using Oxide.Ext.Discord.Logging;
+using Oxide.Ext.Discord.Clients;
+using Oxide.Ext.Discord.Connections;
+using Oxide.Ext.Discord.Interfaces;
+using Oxide.Ext.Discord.Libraries;
 using Random = Oxide.Core.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Discord Status", "Gonzi", "4.0.2")]
+
+
+    [Info("Discord Status", "Gonzi", "4.1.0")]
     [Description("Shows server information as a discord bot status")]
 
-    public class DiscordStatus : CovalencePlugin
+    public class DiscordStatus : CovalencePlugin , IDiscordPlugin
     {
         private string seperatorText = string.Join("-", new string[25 + 1]);
         private bool enableChatSeparators;
 
         #region Fields
 
-        [DiscordClient]
-        private DiscordClient Client;
+        public DiscordClient Client { get; set; }
+        
+        [PluginReference]
+        private Plugin WipeInfoApi;
 
-        private readonly DiscordSettings _settings = new DiscordSettings
+        private readonly BotConnection _settings = new BotConnection
         {
-            Intents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.GuildMembers
+            Intents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.GuildMembers | GatewayIntents.MessageContent
         };
-
+        
         private DiscordGuild _guild;
-
+        
         private readonly DiscordLink _link = GetLibrary<DiscordLink>();
 
         Configuration config;
@@ -68,7 +60,7 @@ namespace Oxide.Plugins
         {
             [JsonProperty(PropertyName = "Discord Bot Token")]
             public string BotToken = string.Empty;
-
+            
             [JsonProperty(PropertyName = "Discord Server ID (Optional if bot only in 1 guild)")]
             public Snowflake GuildId { get; set; }
 
@@ -77,6 +69,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Discord Group Id needed for Commands (null to disable)")]
             public Snowflake? GroupId;
+
+            [JsonProperty(PropertyName = "Discord Channel Id needed for Commands (null to disable)")]
+            public Snowflake? ChannelId;
 
             [JsonProperty(PropertyName = "Update Interval (Seconds)")]
             public int UpdateInterval = 5;
@@ -95,7 +90,10 @@ namespace Oxide.Plugins
                 "{players.sleepers} Sleepers!",
                 "{players.authenticated} Linked Account(s)"
             };
-
+            
+            [JsonProperty(PropertyName = "Delete Command Message")]
+            public bool Delete = false;
+            
             [JsonConverter(typeof(StringEnumConverter))]
             [DefaultValue(DiscordLogLevel.Info)]
             [JsonProperty(PropertyName = "Discord Extension Log Level (Verbose, Debug, Info, Warning, Error, Exception, Off)")]
@@ -134,15 +132,16 @@ namespace Oxide.Plugins
             {
                 ["Title"] = "Players List",
                 ["Players"] = "Online Players [{0}/{1}] 🎆\n {2}",
-                ["IPAddress"] = "steam://connect/{0}:{1}"
-
+                ["IPAddress"] = "steam://connect/{0}:{1}",
+				["NEXTWipe"] = "**Current Wipe:** {2}\n**Next Wipe:** {0} \n**Days Until Wipe:** {1}"
             }, this, "en");
 
             lang.RegisterMessages(new Dictionary<string, string>
             {
                 ["Title"] = "플레이어 목록",
                 ["Players"] = "접속중인 플레이어 [{0}/{1}] 🎆\n {2}",
-                ["IPAddress"] = "steam://connect/{0}:{1}"
+                ["IPAddress"] = "steam://connect/{0}:{1}",
+                ["NEXTWipe"] = "**현재 와이프:** {2}\n**다음 와이프:** {0} \n**와이프까지 남은 일수:** {1}"
             }, this, "kr");
         }
 
@@ -174,11 +173,10 @@ namespace Oxide.Plugins
             };
             return embed;
         }
-
-        [HookMethod(DiscordHooks.OnDiscordGuildMessageCreated)]
+        [HookMethod(DiscordExtHooks.OnDiscordGuildMessageCreated)]
         void OnDiscordGuildMessageCreated(DiscordMessage message)
         {
-            if (message.Author.Bot) return;
+            if (message.Author.Bot == true) return;
 
             if (!string.IsNullOrEmpty(message.Content) && message.Content[0] == config.Prefix[0])
             {
@@ -204,13 +202,11 @@ namespace Oxide.Plugins
         private void DiscordCMD(string command, DiscordMessage message)
         {
             if (config.GroupId.HasValue && !message.Member.Roles.Contains(config.GroupId.Value)) return;
-
+            if (config.ChannelId.HasValue && !(message.ChannelId == config.ChannelId.Value)) return;
             switch (command)
             {
                 case "players":
                     {
-                        string maxplayers = Convert.ToString(ConVar.Server.maxplayers);
-                        string onlineplayers = Convert.ToString(BasePlayer.activePlayerList.Count);
                         string list = string.Empty;
                         var playerList = BasePlayer.activePlayerList;
                         foreach (var player in playerList)
@@ -218,7 +214,7 @@ namespace Oxide.Plugins
                             list += $"[{player.displayName}](https://steamcommunity.com/profiles/{player.UserIDString}/) \n";
                         }
 
-                        DiscordChannel.GetChannel(Client, message.ChannelId, channel =>
+                        DiscordChannel.Get(Client, message.ChannelId).Then(channel =>
                         {
                             channel.CreateMessage(Client, ServerStats(Lang("Players", BasePlayer.activePlayerList.Count, ConVar.Server.maxplayers, list)));
                         });
@@ -226,7 +222,7 @@ namespace Oxide.Plugins
                     }
                 case "ip":
                     {
-                        DiscordChannel.GetChannel(Client, message.ChannelId, channel =>
+                        DiscordChannel.Get(Client, message.ChannelId).Then(channel =>
                         {
                             webrequest.Enqueue("http://icanhazip.com", "", (code, response) =>
                             {
@@ -236,7 +232,30 @@ namespace Oxide.Plugins
                         });
                         break;
                     }
+                    case "wipe":
+					{
+			            if (WipeInfoApi==null)
+						{
+							DiscordChannel.Get(Client, message.ChannelId).Then(channel =>
+										{
+                                channel.CreateMessage(Client, "Not Loaded");
+										});
+                        }
+						else
+						{
+							DiscordChannel.Get(Client, message.ChannelId).Then(channel =>
+										{
+											channel.CreateMessage(Client, ServerStats(Lang("NEXTWipe",GetNextWipe().ToString("dddd, dd MMMM yyyy"),GetDaysTillWipe().ToString(),GetCurrentWipe().ToString("dddd, dd MMMM yyyy"))));
+										});
+						}
+                        break;
+					}
+                    default:
+                        return;
             }
+            if (config.Delete)
+                message.Delete(Client);
+ 
         }
 
         #endregion
@@ -255,10 +274,9 @@ namespace Oxide.Plugins
 
             timer.Every(config.UpdateInterval, () => UpdateStatus());
         }
-
-        [HookMethod(DiscordHooks.OnDiscordGatewayReady)]
-        private void OnDiscordGatewayReady(GatewayReadyEvent ready)
-        {
+        
+        [HookMethod(DiscordExtHooks.OnDiscordGatewayReady)]
+        private void OnDiscordGatewayReady(GatewayReadyEvent ready) {
             if (ready.Guilds.Count == 0)
             {
                 PrintError("Your bot was not found in any discord servers. Please invite it to a server and reload the plugin.");
@@ -282,15 +300,14 @@ namespace Oxide.Plugins
                            "Please make sure your guild Id is correct and the bot is in the discord server.");
                 return;
             }
-
+                
             if (Client.Bot.Application.Flags.HasValue && Client.Bot.Application.Flags.Value.HasFlag(ApplicationFlags.GatewayGuildMembersLimited) == false)
             {
                 PrintError($"You need to enable \"Server Members Intent\" for {Client.Bot.BotUser.Username} @ https://discord.com/developers/applications\n" +
                         $"{Name} will not function correctly until that is fixed. Once updated please reload {Name}.");
                 return;
             }
-
-
+            
             _guild = guild;
         }
         #endregion
@@ -305,7 +322,7 @@ namespace Oxide.Plugins
 
                 var index = GetStatusIndex();
 
-                Client.Bot.UpdateStatus(new UpdatePresenceCommand
+                Client.UpdateStatus(new UpdatePresenceCommand
                 {
                     Activities = new List<DiscordActivity>
                     {
@@ -363,7 +380,8 @@ namespace Oxide.Plugins
                 .Replace("{server.hostname}", server.Name)
                 .Replace("{server.maxplayers}", server.MaxPlayers.ToString())
                 .Replace("{players.online}", players.Connected.Count().ToString())
-                .Replace("{players.authenticated}", GetAuthCount().ToString());
+                .Replace("{players.authenticated}", GetAuthCount().ToString())
+                .Replace("{days.untilwipe}", WipeInfoApi != null ? GetDaysTillWipe().ToString() : "{unknown}");
 
 #if RUST
             message = message
@@ -383,8 +401,10 @@ namespace Oxide.Plugins
             return message;
         }
 
-        private int GetAuthCount() => _link.GetLinkedCount();
-
+        private int GetAuthCount() => _link.LinkedCount;
+		private DateTime GetNextWipe() => (DateTime)WipeInfoApi.Call("GetNextWipe");
+		private int GetDaysTillWipe() => (int)WipeInfoApi.Call("GetDaysTillWipe");
+		private DateTime GetCurrentWipe() => (DateTime)WipeInfoApi.Call("GetCurrentWipe");
         #endregion
     }
 }
